@@ -1,6 +1,10 @@
 pipeline {
     agent any
 
+    tools {
+        sonarQube 'SonarScanner'
+    }
+
     stages {
 
         stage('Checkout') {
@@ -16,6 +20,18 @@ pipeline {
             }
         }
 
+        stage('SonarQube Analysis') {
+            steps {
+                withSonarQubeEnv('SonarQube') {
+                    sh '''
+                        mvn sonar:sonar \
+                        -Dsonar.projectKey=my-devops-project \
+                        -Dsonar.projectName=my-devops-project
+                    '''
+                }
+            }
+        }
+
         stage('Build Docker Image') {
             steps {
                 sh 'docker build -t my-devops-project:latest .'
@@ -24,9 +40,7 @@ pipeline {
 
         stage('Remove Old Container') {
             steps {
-                sh '''
-                    docker rm -f springboot-app 2>/dev/null || true
-                '''
+                sh 'docker rm -f springboot-app 2>/dev/null || true'
             }
         }
 
@@ -55,12 +69,11 @@ pipeline {
 
     post {
         success {
-            echo 'CI/CD Pipeline Completed Successfully'
-            echo 'Spring Boot application deployed on port 8082'
+            echo 'CI/CD Pipeline with SonarQube completed successfully'
         }
 
         failure {
-            echo 'Pipeline Failed'
+            echo 'Pipeline failed'
             sh 'docker ps -a || true'
             sh 'docker logs springboot-app --tail 100 || true'
         }
@@ -70,3 +83,4 @@ pipeline {
         }
     }
 }
+  
