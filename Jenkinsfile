@@ -1,14 +1,17 @@
 pipeline {
     agent any
 
-    tools {
-        sonarQube 'SonarScanner'
+    options {
+        skipDefaultCheckout(true)
+        timestamps()
     }
 
     stages {
 
         stage('Checkout') {
             steps {
+                deleteDir()
+
                 git branch: 'main',
                     url: 'https://github.com/devendra540/my-devops-project.git'
             }
@@ -16,7 +19,9 @@ pipeline {
 
         stage('Build Application') {
             steps {
-                sh 'mvn clean package -DskipTests'
+                sh '''
+                    mvn clean package -DskipTests
+                '''
             }
         }
 
@@ -34,13 +39,19 @@ pipeline {
 
         stage('Build Docker Image') {
             steps {
-                sh 'docker build -t my-devops-project:latest .'
+                sh '''
+                    docker build \
+                    -t my-devops-project:latest \
+                    .
+                '''
             }
         }
 
         stage('Remove Old Container') {
             steps {
-                sh 'docker rm -f springboot-app 2>/dev/null || true'
+                sh '''
+                    docker rm -f springboot-app 2>/dev/null || true
+                '''
             }
         }
 
@@ -59,9 +70,15 @@ pipeline {
         stage('Verify Deployment') {
             steps {
                 sh '''
-                    sleep 10
-                    docker ps
-                    curl -f http://localhost:8082
+                    echo "Waiting for Spring Boot to start..."
+                    sleep 15
+
+                    docker ps --filter "name=springboot-app"
+
+                    curl --fail \
+                         --retry 5 \
+                         --retry-delay 5 \
+                         http://localhost:8082
                 '''
             }
         }
@@ -69,18 +86,21 @@ pipeline {
 
     post {
         success {
-            echo 'CI/CD Pipeline with SonarQube completed successfully'
+            echo 'CI/CD pipeline with SonarQube completed successfully.'
+            echo 'Spring Boot application is running on port 8082.'
         }
 
         failure {
-            echo 'Pipeline failed'
-            sh 'docker ps -a || true'
-            sh 'docker logs springboot-app --tail 100 || true'
+            echo 'Pipeline failed. Showing container information.'
+
+            sh '''
+                docker ps -a || true
+                docker logs springboot-app --tail 100 2>/dev/null || true
+            '''
         }
 
         always {
-            echo 'Pipeline execution completed'
+            echo 'Pipeline execution completed.'
         }
     }
 }
-  
