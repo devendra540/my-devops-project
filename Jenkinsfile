@@ -6,6 +6,7 @@ pipeline {
     }
 
     stages {
+
         stage('Checkout') {
             steps {
                 checkout scm
@@ -20,7 +21,7 @@ pipeline {
 
         stage('SonarQube Analysis') {
             steps {
-                withSonarQubeEnv('SonarQube') {
+                withSonarQubeEnv('MySonarServer') {
                     sh '''
                         mvn sonar:sonar \
                         -Dsonar.projectKey=my-devops-project \
@@ -47,6 +48,7 @@ pipeline {
                 sh '''
                     docker run -d \
                     --name springboot-app \
+                    --restart unless-stopped \
                     -p 8082:8080 \
                     my-devops-project:latest
                 '''
@@ -55,7 +57,7 @@ pipeline {
 
         stage('Verify Deployment') {
             steps {
-                sh 'docker ps'
+                sh 'docker ps --filter name=springboot-app'
             }
         }
     }
