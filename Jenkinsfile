@@ -6,11 +6,13 @@ pipeline {
     }
 
     environment {
-        AWS_REGION   = 'us-east-1'
-        ECR_REGISTRY = '115154236409.dkr.ecr.us-east-1.amazonaws.com'
-        ECR_REPOSITORY = 'my-devops-project'
-        EKS_CLUSTER  = 'devops-eks-cluster'
-        KUBECONFIG   = "${WORKSPACE}/.kubeconfig"
+        AWS_REGION      = 'us-east-1'
+        AWS_ACCOUNT_ID  = '115154236409'
+        ECR_REPOSITORY  = 'my-devops-project'
+        ECR_REGISTRY    = '115154236409.dkr.ecr.us-east-1.amazonaws.com'
+        EKS_CLUSTER     = 'devops-eks-cluster'
+        KUBECONFIG      = '/var/lib/jenkins/.kube/config'
+        IMAGE_NAME      = "${ECR_REGISTRY}/${ECR_REPOSITORY}"
     }
 
     stages {
@@ -44,7 +46,8 @@ pipeline {
                 sh '''
                     docker build \
                     -t ${ECR_REPOSITORY}:${BUILD_NUMBER} \
-                    -t ${ECR_REPOSITORY}:latest .
+                    -t ${ECR_REPOSITORY}:latest \
+                    .
                 '''
             }
         }
@@ -61,22 +64,25 @@ pipeline {
             }
         }
 
-        stage('Tag and Push Image to ECR') {
+        stage('Tag Docker Image') {
             steps {
                 sh '''
                     docker tag \
                     ${ECR_REPOSITORY}:${BUILD_NUMBER} \
-                    ${ECR_REGISTRY}/${ECR_REPOSITORY}:${BUILD_NUMBER}
+                    ${IMAGE_NAME}:${BUILD_NUMBER}
 
                     docker tag \
                     ${ECR_REPOSITORY}:latest \
-                    ${ECR_REGISTRY}/${ECR_REPOSITORY}:latest
+                    ${IMAGE_NAME}:latest
+                '''
+            }
+        }
 
-                    docker push \
-                    ${ECR_REGISTRY}/${ECR_REPOSITORY}:${BUILD_NUMBER}
-
-                    docker push \
-                    ${ECR_REGISTRY}/${ECR_REPOSITORY}:latest
+        stage('Push Image to ECR') {
+            steps {
+                sh '''
+                    docker push ${IMAGE_NAME}:${BUILD_NUMBER}
+                    docker push ${IMAGE_NAME}:latest
                 '''
             }
         }
@@ -94,23 +100,43 @@ pipeline {
             }
         }
 
-        stage('Deploy to EKS') {
+        stage('Deploy Application to EKS') {
             steps {
                 sh '''
+                    kubectl create deployment springboot-app \
+                    --image=${IMAGE_NAME}:${BUILD_NUMBER} \
+                    --dry-run=client \
+                    -o yaml | kubectl apply -f -
+
                     kubectl set image \
                     deployment/springboot-app \
-                    springboot-app=${ECR_REGISTRY}/${ECR_REPOSITORY}:${BUILD_NUMBER}
+                    springboot-app=${IMAGE_NAME}:${BUILD_NUMBER}
                 '''
             }
         }
 
-        stage('Verify Kubernetes Deployment') {
+        stage('Create LoadBalancer Service') {
+            steps {
+                sh '''
+                    kubectl expose deployment springboot-app \
+                    --type=LoadBalancer \
+                    --port=80 \
+                    --target-port=8080 \
+                    --name=springboot-service \
+                    --dry-run=client \
+                    -o yaml | kubectl apply -f -
+                '''
+            }
+        }
+
+        stage('Verify EKS Deployment') {
             steps {
                 sh '''
                     kubectl rollout status \
                     deployment/springboot-app \
                     --timeout=300s
 
+                    kubectl get deployments
                     kubectl get pods
                     kubectl get service springboot-service
                 '''
@@ -120,11 +146,18 @@ pipeline {
 
     post {
         success {
-            echo 'Pipeline completed successfully and application deployed to EKS.'
+            echo 'Pipeline completed successfully.'
+            echo 'Docker image pushed to ECR and application deployed to EKS.'
         }
 
         failure {
             echo 'Pipeline failed. Check the Jenkins Console Output.'
+        }
+
+        always {
+            sh '''
+                docker image prune -f || true
+            '''
         }
     }
 }
