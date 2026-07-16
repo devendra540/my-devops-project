@@ -6,13 +6,12 @@ pipeline {
     }
 
     environment {
-        AWS_REGION      = 'us-east-1'
-        AWS_ACCOUNT_ID  = '115154236409'
-        ECR_REPOSITORY  = 'my-devops-project'
-        ECR_REGISTRY    = '115154236409.dkr.ecr.us-east-1.amazonaws.com'
-        EKS_CLUSTER     = 'devops-eks-cluster'
-        KUBECONFIG      = '/var/lib/jenkins/.kube/config'
-        IMAGE_NAME      = "${ECR_REGISTRY}/${ECR_REPOSITORY}"
+        AWS_REGION     = 'us-east-1'
+        ECR_REGISTRY   = '115154236409.dkr.ecr.us-east-1.amazonaws.com'
+        ECR_REPOSITORY = 'my-devops-project'
+        EKS_CLUSTER    = 'devops-eks-cluster'
+        KUBECONFIG     = '/var/lib/jenkins/.kube/config'
+        IMAGE_NAME     = "${ECR_REGISTRY}/${ECR_REPOSITORY}"
     }
 
     stages {
@@ -95,31 +94,21 @@ pipeline {
                     --region ${AWS_REGION} \
                     --kubeconfig ${KUBECONFIG}
 
-                    kubectl get nodes
+                    kubectl --kubeconfig ${KUBECONFIG} get nodes
                 '''
             }
         }
-             stage('Deploy Application to EKS') {
-             steps {
-              sh '''
-             kubectl delete deployment springboot-app --ignore-not-found=true
 
-                kubectl create deployment springboot-app \
-                    --image=${IMAGE_NAME}:${BUILD_NUMBER}
-            '''
-    }
-}
         stage('Deploy Application to EKS') {
             steps {
                 sh '''
-                    kubectl create deployment springboot-app \
-                    --image=${IMAGE_NAME}:${BUILD_NUMBER} \
-                    --dry-run=client \
-                    -o yaml | kubectl apply -f -
+                    kubectl --kubeconfig ${KUBECONFIG} \
+                    delete deployment springboot-app \
+                    --ignore-not-found=true
 
-                    kubectl set image \
-                    deployment/springboot-app \
-                    springboot-app=${IMAGE_NAME}:${BUILD_NUMBER}
+                    kubectl --kubeconfig ${KUBECONFIG} \
+                    create deployment springboot-app \
+                    --image=${IMAGE_NAME}:${BUILD_NUMBER}
                 '''
             }
         }
@@ -127,13 +116,15 @@ pipeline {
         stage('Create LoadBalancer Service') {
             steps {
                 sh '''
-                    kubectl expose deployment springboot-app \
+                    kubectl --kubeconfig ${KUBECONFIG} \
+                    expose deployment springboot-app \
                     --type=LoadBalancer \
                     --port=80 \
                     --target-port=8080 \
                     --name=springboot-service \
                     --dry-run=client \
-                    -o yaml | kubectl apply -f -
+                    -o yaml |
+                    kubectl --kubeconfig ${KUBECONFIG} apply -f -
                 '''
             }
         }
@@ -141,13 +132,13 @@ pipeline {
         stage('Verify EKS Deployment') {
             steps {
                 sh '''
-                    kubectl rollout status \
-                    deployment/springboot-app \
+                    kubectl --kubeconfig ${KUBECONFIG} \
+                    rollout status deployment/springboot-app \
                     --timeout=300s
 
-                    kubectl get deployments
-                    kubectl get pods
-                    kubectl get service springboot-service
+                    kubectl --kubeconfig ${KUBECONFIG} get deployments
+                    kubectl --kubeconfig ${KUBECONFIG} get pods
+                    kubectl --kubeconfig ${KUBECONFIG} get service springboot-service
                 '''
             }
         }
@@ -164,9 +155,7 @@ pipeline {
         }
 
         always {
-            sh '''
-                docker image prune -f || true
-            '''
+            sh 'docker image prune -f || true'
         }
     }
 }
