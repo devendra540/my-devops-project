@@ -99,7 +99,16 @@ pipeline {
                 '''
             }
         }
+             stage('Deploy Application to EKS') {
+             steps {
+              sh '''
+             kubectl delete deployment springboot-app --ignore-not-found=true
 
+                kubectl create deployment springboot-app \
+                    --image=${IMAGE_NAME}:${BUILD_NUMBER}
+            '''
+    }
+}
         stage('Deploy Application to EKS') {
             steps {
                 sh '''
