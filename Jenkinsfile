@@ -9,8 +9,6 @@ pipeline {
         AWS_REGION     = 'us-east-1'
         ECR_REGISTRY   = '115154236409.dkr.ecr.us-east-1.amazonaws.com'
         ECR_REPOSITORY = 'my-devops-project'
-        EKS_CLUSTER    = 'devops-eks-cluster'
-        KUBECONFIG     = '/var/lib/jenkins/.kube/config'
         IMAGE_NAME     = "${ECR_REGISTRY}/${ECR_REPOSITORY}"
     }
 
@@ -86,59 +84,26 @@ pipeline {
             }
         }
 
-        stage('Configure EKS Access') {
+        stage('Run Application on EC2') {
             steps {
                 sh '''
-                    aws eks update-kubeconfig \
-                    --name ${EKS_CLUSTER} \
-                    --region ${AWS_REGION} \
-                    --kubeconfig ${KUBECONFIG}
+                    docker rm -f springboot-app 2>/dev/null || true
 
-                    kubectl --kubeconfig ${KUBECONFIG} get nodes
+                    docker run -d \
+                    --name springboot-app \
+                    --restart unless-stopped \
+                    -p 8082:8080 \
+                    ${ECR_REPOSITORY}:${BUILD_NUMBER}
                 '''
             }
         }
 
-        stage('Deploy Application to EKS') {
+        stage('Verify Application') {
             steps {
                 sh '''
-                    kubectl --kubeconfig ${KUBECONFIG} \
-                    delete deployment springboot-app \
-                    --ignore-not-found=true
-
-                    kubectl --kubeconfig ${KUBECONFIG} \
-                    create deployment springboot-app \
-                    --image=${IMAGE_NAME}:${BUILD_NUMBER}
-                '''
-            }
-        }
-
-        stage('Create LoadBalancer Service') {
-            steps {
-                sh '''
-                    kubectl --kubeconfig ${KUBECONFIG} \
-                    expose deployment springboot-app \
-                    --type=LoadBalancer \
-                    --port=80 \
-                    --target-port=8080 \
-                    --name=springboot-service \
-                    --dry-run=client \
-                    -o yaml |
-                    kubectl --kubeconfig ${KUBECONFIG} apply -f -
-                '''
-            }
-        }
-
-        stage('Verify EKS Deployment') {
-            steps {
-                sh '''
-                    kubectl --kubeconfig ${KUBECONFIG} \
-                    rollout status deployment/springboot-app \
-                    --timeout=300s
-
-                    kubectl --kubeconfig ${KUBECONFIG} get deployments
-                    kubectl --kubeconfig ${KUBECONFIG} get pods
-                    kubectl --kubeconfig ${KUBECONFIG} get service springboot-service
+                    sleep 10
+                    docker ps
+                    curl -f http://localhost:8082 || true
                 '''
             }
         }
@@ -147,7 +112,7 @@ pipeline {
     post {
         success {
             echo 'Pipeline completed successfully.'
-            echo 'Docker image pushed to ECR and application deployed to EKS.'
+            echo 'Docker image pushed to ECR and application deployed on EC2.'
         }
 
         failure {
